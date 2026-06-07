@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Laboratory Florence Erlenmeyer Flask Silhouette -->
+    <path
+        android:fillColor="#E1F5FE"
+        android:fillAlpha="0.3"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M 46,26 L 62,26 M 48,26 L 48,38 L 28,78 C 26,82 29,86 34,86 L 74,86 C 79,86 82,82 80,78 L 60,38 L 60,26 Z" />
+
+    <!-- Liquid Line inside Erlenmeyer flask -->
+    <path
+        android:fillColor="#00E5FF"
+        android:fillAlpha="0.8"
+        android:pathData="M 32,70 C 40,73 50,67 58,70 C 66,73 72,71 76,70 L 78,76 C 79,78 77,80 75,80 L 33,80 C 31,80 29,78 30,76 Z" />
+
+    <!-- Neural connected Bayesian nodes (glowing scientific optimization dots) -->
+    <!-- Connection 1 -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.8"
+        android:pathData="M 54,34 L 38,62" />
+    <!-- Connection 2 -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.8"
+        android:pathData="M 54,34 L 70,62" />
+    <!-- Connection 3 -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.8"
+        android:pathData="M 38,62 L 70,62" />
+
+    <!-- Node 1 (Optimum peak point) -->
+    <group>
+        <clip-path android:pathData="M0,0h108v108z" />
+        <path
+            android:fillColor="#FFD700"
+            android:pathData="M 54,34 m -5,0 a 5,5 0 1,1 10,0 a 5,5 0 1,1 -10,0" />
+        <!-- Node 2 (Exploratory exploratory anchor) -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M 38,62 m -4,0 a 4,4 0 1,1 8,0 a 4,4 0 1,1 -8,0" />
+        <!-- Node 3 (Characterization boundary anchor) -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M 70,62 m -4,0 a 4,4 0 1,1 8,0 a 4,4 0 1,1 -8,0" />
+    </group>
+
+    <!-- Glowing peak accent representing active optimization finding -->
+    <path
+        android:fillColor="#FF2A6D"
+        android:pathData="M 54,20 l 2,4 l 4,1 L 57,28 l 1,5 L 54,30 l -4,3 l 1,-5 l -3,-3 l 4,-1 Z" />
+</vector>

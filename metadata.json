@@ -1,0 +1,6 @@
+{
+  "name": "BioOpt AI",
+  "description": "AI-driven bioprocess optimization using Bayesian optimization and Gaussian Process regression.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
