@@ -120,7 +120,7 @@ class BayesianOptimizer {
         xi: Double = 0.01,
         kappa: Double = 2.0
     ): List<Recommendation> {
-        if (factors.isEmpty() || historicalY.isEmpty() || gp.predict(factors.map { (it.minVal + it.maxVal) / 2.0 }.toDoubleArray()).stdDev == 1.0) {
+        if (factors.isEmpty() || historicalY.isEmpty() || !gp.isFit) {
             // Either model is not trained/fitted or parameters empty
             // Create random samples within bounds
             val random = java.util.Random()
@@ -154,6 +154,9 @@ class BayesianOptimizer {
         val numCandidates = 4000
         val candidatesList = ArrayList<DoubleArray>(numCandidates)
         val random = java.util.Random()
+        
+        // Dynamically scale xi based on the target variable's standard deviation
+        val scaledXi = xi * gp.stdY
 
         for (i in 0 until numCandidates) {
             val candidate = DoubleArray(factors.size) { idx ->
@@ -170,7 +173,7 @@ class BayesianOptimizer {
             val pred = gp.predict(candidate)
 
             // Dynamic explainability rules
-            val score = calculateAcquisition(pred.mean, pred.stdDev, bestObserved, acquisitionType, goal, xi, kappa)
+            val score = calculateAcquisition(pred.mean, pred.stdDev, bestObserved, acquisitionType, goal, scaledXi, kappa)
 
             // Measure minimum Euclidean distance to run experiments in normalized scale
             var minDistance = Double.MAX_VALUE
@@ -191,7 +194,13 @@ class BayesianOptimizer {
             // Diversity penalty check to avoid redundant/over-sampled space
             val adjustedScore = if (minDistance < 0.05) {
                 // Heavily penalize close recommendations to enforce new exploration
-                score * (minDistance / 0.05)
+                val penaltyRatio = minDistance / 0.05
+                if (score > 0) {
+                    score * penaltyRatio
+                } else {
+                    // For negative scores, we shift them downwards proportional to closeness
+                    score - (1.0 - penaltyRatio) * kotlin.math.max(1.0, kotlin.math.abs(score))
+                }
             } else {
                 score
             }

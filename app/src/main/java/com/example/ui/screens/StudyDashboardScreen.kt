@@ -271,6 +271,66 @@ fun StudyDashboardScreen(
                     }
                 }
 
+                // --- Summary Status Indicator ---
+                val statusColor: Color
+                val statusTitle: String
+                val statusText: String
+                val statusIcon: androidx.compose.ui.graphics.vector.ImageVector
+
+                if (experiments.size < 2) {
+                    statusColor = Slate500
+                    statusTitle = "Pending Initial Data"
+                    statusText = "Waiting for initial data (minimum 2 runs required for GP modeling)."
+                    statusIcon = Icons.Default.Info
+                } else if (recommendations.isNotEmpty()) {
+                    val maxScore = recommendations.first().acquisitionScore
+                    val gp = viewModel.activeGP
+                    val stdY = gp?.stdY ?: 1.0
+                    val isConverged = when (study.acquisitionFunction) {
+                        "PI" -> maxScore < 0.01
+                        "EI" -> maxScore < 0.01 * stdY
+                        else -> (recommendations.first().predictedStdDev) < 0.05 * stdY
+                    }
+                    
+                    if (isConverged) {
+                        statusColor = Color(0xFF10B981)
+                        statusTitle = "Converged"
+                        statusText = "Optimization target has stabilized based on the improvement threshold."
+                        statusIcon = Icons.Default.Check
+                    } else {
+                        statusColor = Color(0xFF3B82F6)
+                        statusTitle = "Active Optimizing"
+                        statusText = "Currently exploring optimal parameters in the design space."
+                        statusIcon = Icons.Default.PlayArrow
+                    }
+                } else {
+                    statusColor = Slate500
+                    statusTitle = "Processing"
+                    statusText = "Awaiting modeling completion..."
+                    statusIcon = Icons.Default.Info
+                }
+
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, statusColor.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(statusIcon, contentDescription = null, tint = statusColor, modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("Status: $statusTitle", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = statusColor)
+                            Text(statusText, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     when (selectedTabIdx) {
                         0 -> {
@@ -300,25 +360,38 @@ fun StudyDashboardScreen(
 
                                         // Kernel type Row
                                         Text("Statistical Interpolation Kernel", style = MaterialTheme.typography.labelMedium)
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        var kernelExpanded by remember { mutableStateOf(false) }
+                                        ExposedDropdownMenuBox(
+                                            expanded = kernelExpanded,
+                                            onExpandedChange = { kernelExpanded = !kernelExpanded }
                                         ) {
-                                            KernelType.values().forEach { kt ->
-                                                val isSel = study.kernelType == kt.name
-                                                FilterChip(
-                                                    selected = isSel,
-                                                    onClick = {
-                                                        viewModel.updateStudyConfig(
-                                                            kernel = kt.name,
-                                                            acq = study.acquisitionFunction,
-                                                            targetGoal = study.targetGoal,
-                                                            optIndex = study.targetResponseIndex
-                                                        )
-                                                    },
-                                                    label = { Text(kt.name.replace("_", " "), fontSize = 10.sp) },
-                                                    modifier = Modifier.testTag("kernel_chip_${kt.name}")
-                                                )
+                                            OutlinedTextField(
+                                                value = study.kernelType.replace("_", " "),
+                                                onValueChange = {},
+                                                readOnly = true,
+                                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = kernelExpanded) },
+                                                colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                                                modifier = Modifier.menuAnchor().fillMaxWidth().testTag("kernel_dropdown")
+                                            )
+                                            ExposedDropdownMenu(
+                                                expanded = kernelExpanded,
+                                                onDismissRequest = { kernelExpanded = false }
+                                            ) {
+                                                KernelType.values().forEach { kt ->
+                                                    DropdownMenuItem(
+                                                        text = { Text(kt.name.replace("_", " ")) },
+                                                        onClick = {
+                                                            viewModel.updateStudyConfig(
+                                                                kernel = kt.name,
+                                                                acq = study.acquisitionFunction,
+                                                                targetGoal = study.targetGoal,
+                                                                optIndex = study.targetResponseIndex
+                                                            )
+                                                            kernelExpanded = false
+                                                        },
+                                                        modifier = Modifier.testTag("kernel_item_${kt.name}")
+                                                    )
+                                                }
                                             }
                                         }
 
@@ -1066,7 +1139,9 @@ fun StudyDashboardScreen(
                                                 otherFactorValues = sliderValues,
                                                 experiments = experiments,
                                                 targetResponseIdx = study.targetResponseIndex,
-                                                modifier = Modifier.fillMaxWidth().height(290.dp)
+                                                targetGoal = study.targetGoal,
+                                                acquisitionType = study.acquisitionFunction,
+                                                modifier = Modifier.fillMaxWidth().height(320.dp)
                                             )
                                         }
 

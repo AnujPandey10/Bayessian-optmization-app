@@ -18,7 +18,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.Experiment
 import com.example.data.Factor
+import com.example.ml.AcquisitionType
+import com.example.ml.BayesianOptimizer
 import com.example.ml.GaussianProcess
+import com.example.ml.OptimizationGoal
 import kotlin.math.max
 import kotlin.math.min
 
@@ -30,6 +33,8 @@ fun UncertaintyChart(
     otherFactorValues: Map<Int, Double>,
     experiments: List<Experiment>,
     targetResponseIdx: Int,
+    targetGoal: String,
+    acquisitionType: String,
     modifier: Modifier = Modifier
 ) {
     if (factors.isEmpty() || sweepFactorIdx >= factors.size) {
@@ -46,11 +51,39 @@ fun UncertaintyChart(
     val textMeasurer = rememberTextMeasurer()
     val axisStyle = TextStyle(color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
 
+    // Parse valid historical coordinates
+    val scatterPoints = remember(experiments, sweepFactorIdx, targetResponseIdx) {
+        val scatter = ArrayList<Offset>()
+        for (exp in experiments) {
+            val yArr = com.example.data.Converters().stringToDoubleList(exp.responseValuesJson ?: "")
+            if (yArr.isNotEmpty() && targetResponseIdx < yArr.size) {
+                val xArr = com.example.data.Converters().stringToDoubleList(exp.factorValuesJson)
+                if (sweepFactorIdx < xArr.size) {
+                    scatter.add(Offset(xArr[sweepFactorIdx].toFloat(), yArr[targetResponseIdx].toFloat()))
+                }
+            }
+        }
+        scatter
+    }
+
+    val optGoal = try { OptimizationGoal.valueOf(targetGoal) } catch(e: Exception) { OptimizationGoal.MAXIMIZE }
+    val acqType = try { AcquisitionType.valueOf(acquisitionType) } catch(e: Exception) { AcquisitionType.EI }
+
+    val bestObservedY = remember(scatterPoints, optGoal) {
+        if (scatterPoints.isNotEmpty()) {
+            if (optGoal == OptimizationGoal.MAXIMIZE) scatterPoints.maxOf { it.y.toDouble() }
+            else scatterPoints.minOf { it.y.toDouble() }
+        } else {
+            0.0
+        }
+    }
+
     // Generate 1D sweep points
     val resolution = 80
-    val sweepPoints = remember(gp, sweepFactorIdx, otherFactorValues, targetResponseIdx) {
+    val sweepPoints = remember(gp, sweepFactorIdx, otherFactorValues, targetResponseIdx, bestObservedY, optGoal, acqType) {
         val list = ArrayList<SweepPoint>()
         val range = sweepFactor.maxVal - sweepFactor.minVal
+        val optimizer = BayesianOptimizer()
 
         for (i in 0 until resolution) {
             val pct = i.toDouble() / (resolution - 1)
@@ -67,24 +100,10 @@ fun UncertaintyChart(
 
             // Predict with GPR
             val pred = gp.predict(candidate)
-            list.add(SweepPoint(currentVal, pred.mean, pred.stdDev))
+            val acqScore = optimizer.calculateAcquisition(pred.mean, pred.stdDev, bestObservedY, acqType, optGoal, 0.01 * gp.stdY)
+            list.add(SweepPoint(currentVal, pred.mean, pred.stdDev, acqScore))
         }
         list
-    }
-
-    // Parse valid historical coordinates
-    val scatterPoints = remember(experiments, sweepFactorIdx, targetResponseIdx) {
-        val scatter = ArrayList<Offset>()
-        for (exp in experiments) {
-            val yArr = com.example.data.Converters().stringToDoubleList(exp.responseValuesJson ?: "")
-            if (yArr.isNotEmpty() && targetResponseIdx < yArr.size) {
-                val xArr = com.example.data.Converters().stringToDoubleList(exp.factorValuesJson)
-                if (sweepFactorIdx < xArr.size) {
-                    scatter.add(Offset(xArr[sweepFactorIdx].toFloat(), yArr[targetResponseIdx].toFloat()))
-                }
-            }
-        }
-        scatter
     }
 
     // Work out coordinate scales
@@ -99,6 +118,10 @@ fun UncertaintyChart(
         val minScatter = scatterPoints.map { it.y.toDouble() }.minOrNull() ?: 0.0
         min(minSweep, minScatter)
     }
+
+    val minAcq = sweepPoints.minOfOrNull { it.acq } ?: 0.0
+    val maxAcq = sweepPoints.maxOfOrNull { it.acq } ?: 1.0
+    val safeAcqRange = max(1e-9, maxAcq - minAcq)
 
     val yRange = maxYVal - minYVal
     val yPadding = if (yRange < 1e-9) 1.0 else yRange * 0.12
@@ -141,6 +164,13 @@ fun UncertaintyChart(
                 val span = chartMaxY - chartMinY
                 val ratio = if (span < 1e-9) 0.5 else (valY - chartMinY) / span
                 return (topMargin + chartH - ratio * chartH).toFloat()
+            }
+
+            // Map Acq coordinate to position overlay at bottom
+            fun getAcqYPos(valAcq: Double): Float {
+                val ratio = (valAcq - minAcq) / safeAcqRange
+                val acqHeight = chartH * 0.35 // 35% height
+                return (topMargin + chartH - ratio * acqHeight).toFloat()
             }
 
             // Y ticks & helper gridlines
@@ -188,7 +218,6 @@ fun UncertaintyChart(
             }
 
             // 1. Draw ±95% Shaded Confidence Interval Envelope (Gaussian bounds)
-            // Path is drawn up along the upper bounds, then backwards along the lower bounds, making a closed loop
             val intervalPath = Path()
             intervalPath.moveTo(getXPos(sweepPoints[0].x), getYPos(sweepPoints[0].mean + 1.96 * sweepPoints[0].stdDev))
             for (i in 1 until sweepPoints.size) {
@@ -199,13 +228,38 @@ fun UncertaintyChart(
             }
             intervalPath.close()
 
-            // Draw shaded translucent polygon
             drawPath(
                 path = intervalPath,
-                color = Color(0x3000B4D8) // Translucent scientific cyan
+                color = Color(0x3000B4D8)
             )
 
-            // 2. Draw Mean prediction Curve (Vivid cyan-indigo stroke)
+            // 2. Draw Acquisition Landscape Fill (D3-style area chart)
+            val acqPath = Path()
+            acqPath.moveTo(getXPos(sweepPoints[0].x), topMargin + chartH)
+            for (i in 0 until sweepPoints.size) {
+                acqPath.lineTo(getXPos(sweepPoints[i].x), getAcqYPos(sweepPoints[i].acq))
+            }
+            acqPath.lineTo(getXPos(sweepPoints.last().x), topMargin + chartH)
+            acqPath.close()
+
+            drawPath(
+                path = acqPath,
+                color = Color(0x258B5CF6) // Translucent purple for acquisition
+            )
+
+            // Draw Acquisition line
+            val acqLinePath = Path()
+            acqLinePath.moveTo(getXPos(sweepPoints[0].x), getAcqYPos(sweepPoints[0].acq))
+            for (i in 1 until sweepPoints.size) {
+                acqLinePath.lineTo(getXPos(sweepPoints[i].x), getAcqYPos(sweepPoints[i].acq))
+            }
+            drawPath(
+                path = acqLinePath,
+                color = Color(0xFF8B5CF6),
+                style = Stroke(width = 2.dp.toPx())
+            )
+
+            // 3. Draw Mean prediction Curve (Vivid cyan-indigo stroke)
             val meanPath = Path()
             meanPath.moveTo(getXPos(sweepPoints[0].x), getYPos(sweepPoints[0].mean))
             for (i in 1 until sweepPoints.size) {
@@ -218,7 +272,7 @@ fun UncertaintyChart(
                 style = Stroke(width = 2.5.dp.toPx())
             )
 
-            // 3. Draw Scatter Points of Historical/Completed runs
+            // 4. Draw Scatter Points of Historical/Completed runs
             for (pt in scatterPoints) {
                 val xPos = getXPos(pt.x.toDouble())
                 val yPos = getYPos(pt.y.toDouble())
@@ -264,7 +318,7 @@ fun UncertaintyChart(
                 "Observed runs",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 4.dp, end = 16.dp)
+                modifier = Modifier.padding(start = 4.dp, end = 12.dp)
             )
 
             Box(modifier = Modifier.size(10.dp).background(Color(0xFF0077B6)))
@@ -272,12 +326,20 @@ fun UncertaintyChart(
                 "GP Mean Fit",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 4.dp, end = 16.dp)
+                modifier = Modifier.padding(start = 4.dp, end = 12.dp)
             )
 
             Box(modifier = Modifier.size(14.dp, 8.dp).background(Color(0x3000B4D8)))
             Text(
                 "±95% CI Uncertainty",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, end = 12.dp)
+            )
+
+            Box(modifier = Modifier.size(14.dp, 8.dp).background(Color(0x508B5CF6)))
+            Text(
+                "Acq Function",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 4.dp)
@@ -286,4 +348,4 @@ fun UncertaintyChart(
     }
 }
 
-private data class SweepPoint(val x: Double, val mean: Double, val stdDev: Double)
+private data class SweepPoint(val x: Double, val mean: Double, val stdDev: Double, val acq: Double)

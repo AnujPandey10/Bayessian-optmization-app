@@ -9,7 +9,8 @@ enum class KernelType {
     RBF,
     MATERN_3_2,
     MATERN_5_2,
-    RATIONAL_QUADRATIC
+    RATIONAL_QUADRATIC,
+    PERIODIC
 }
 
 class GaussianProcess(
@@ -26,7 +27,11 @@ class GaussianProcess(
     private var meanX: DoubleArray = doubleArrayOf()
     private var stdX: DoubleArray = doubleArrayOf()
     private var meanY: Double = 0.0
-    private var stdY: Double = 1.0
+    var stdY: Double = 1.0
+        private set
+
+    var isFit: Boolean = false
+        private set
 
     // Fitting parameters
     private var L: Array<DoubleArray> = emptyArray() // Lower triangular Cholesky factor
@@ -59,11 +64,16 @@ class GaussianProcess(
                 val alphaVal = 1.0 // typical default
                 signalVariance * signalVariance * (1.0 + sqDist / (2.0 * alphaVal * lengthScale * lengthScale)).pow(-alphaVal)
             }
+            KernelType.PERIODIC -> {
+                val p = 1.0 // period length
+                signalVariance * signalVariance * exp(-2.0 * kotlin.math.sin(Math.PI * d / p).pow(2) / (lengthScale * lengthScale))
+            }
         }
     }
 
     // Fit the Gaussian Process model
     fun fit(X: List<DoubleArray>, y: DoubleArray): Boolean {
+        isFit = false
         if (X.isEmpty() || y.isEmpty() || X.size != y.size) {
             return false
         }
@@ -169,6 +179,7 @@ class GaussianProcess(
             alpha[i] = sum / L[i][i]
         }
 
+        isFit = true
         return true
     }
 
